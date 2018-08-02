@@ -161,6 +161,52 @@ func TestRemoveWhileRunning(t *testing.T) {
 	}
 }
 
+// Schedule within multiple go routines
+func TestParallelSchedule(t *testing.T) {
+	var wg sync.WaitGroup
+	const numRoutine = 4
+
+	errSlice := make([]error, numRoutine)
+	idSlice := make([][]EntryID, numRoutine)
+	cron := New()
+	cron.Start()
+	for i := 0; i < numRoutine; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			const numTry = 100
+			for iTry := 0; iTry < numTry; iTry++ {
+				sched, err := Parse("* * * * * ?")
+				if err != nil {
+					errSlice[i] = err
+					return
+				}
+				var job testJob
+				entryID := cron.Schedule(sched, job)
+				idSlice[i] = append(idSlice[i], entryID)
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	for i, err := range errSlice {
+		if err != nil {
+			t.Fatal("Error in #", i, ":", err)
+		}
+	}
+
+	idMap := make(map[EntryID]bool)
+	for i, ids := range idSlice {
+		for j, id := range ids {
+			if idMap[id] {
+				t.Fatal("id duplicate in #", i, "No:", j, "id:", id)
+			}
+			idMap[id] = true
+		}
+	}
+	cron.Stop()
+}
+
 // Test timing with Entries.
 func TestSnapshotEntries(t *testing.T) {
 	wg := &sync.WaitGroup{}

@@ -5,6 +5,7 @@ import (
 	"log"
 	"runtime"
 	"sort"
+	"sync/atomic"
 	"time"
 )
 
@@ -19,7 +20,7 @@ type Cron struct {
 	snapshot chan []*Entry
 	running  bool
 	location *time.Location
-	nextID   EntryID
+	nextID   uint32
 	ErrorLog *log.Logger
 }
 
@@ -36,7 +37,7 @@ type Schedule interface {
 }
 
 // EntryID identifies an entry within a Cron instance
-type EntryID int
+type EntryID uint32
 
 // Entry consists of a schedule and the func to execute on that schedule.
 type Entry struct {
@@ -144,10 +145,10 @@ func (c *Cron) AddJobN(name, spec string, cmd Job) (EntryID, error) {
 
 // Schedule adds a Job to the Cron to be run on the given schedule.
 func (c *Cron) Schedule(schedule Schedule, cmd Job) EntryID {
-	c.nextID++
+	nextID := atomic.AddUint32(&c.nextID, 1)
 
 	entry := &Entry{
-		ID:       c.nextID,
+		ID:       EntryID(nextID),
 		Schedule: schedule,
 		Job:      cmd,
 	}
@@ -163,10 +164,10 @@ func (c *Cron) Schedule(schedule Schedule, cmd Job) EntryID {
 
 // ScheduleN adds a Job to the Cron to be run on the given schedule.
 func (c *Cron) ScheduleN(name, spec string, schedule Schedule, cmd Job) EntryID {
-	c.nextID++
+	nextID := atomic.AddUint32(&c.nextID, 1)
 
 	entry := &Entry{
-		ID:       c.nextID,
+		ID:       EntryID(nextID),
 		Name:     name,
 		Spec:     spec,
 		Schedule: schedule,
