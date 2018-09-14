@@ -62,6 +62,11 @@ type Entry struct {
 
 	// Spec is a string used to make a schedule
 	Spec string
+
+	// Location is the zone in use at that time. Typically, the Location
+	// represents the collection of time offsets in use in a geographical
+	// area, such as CEST and CET for central Europe.
+	Location *time.Location
 }
 
 // Valid returns true if this is not the zero entry.
@@ -122,6 +127,11 @@ func (c *Cron) AddFuncN(name, spec string, cmd func()) (EntryID, error) {
 	return c.AddJobN(name, spec, FuncJob(cmd))
 }
 
+// AddFuncNLocation adds a func to the Cron to be run on the given schedule with time location.
+func (c *Cron) AddFuncNLocation(name, spec string, loc *time.Location, cmd func()) (EntryID, error) {
+	return c.AddJobNLocation(name, spec, loc, FuncJob(cmd))
+}
+
 // AddJob adds a Job to the Cron to be run on the given schedule.
 func (c *Cron) AddJob(spec string, cmd Job) (EntryID, error) {
 	schedule, err := Parse(spec)
@@ -140,6 +150,16 @@ func (c *Cron) AddJobN(name, spec string, cmd Job) (EntryID, error) {
 	}
 
 	return c.ScheduleN(name, spec, schedule, cmd), nil
+}
+
+// AddJobNLocation adds a Job to the Cron to be run on the given schedule with time location.
+func (c *Cron) AddJobNLocation(name, spec string, loc *time.Location, cmd Job) (EntryID, error) {
+	schedule, err := Parse(spec)
+	if err != nil {
+		return 0, err
+	}
+
+	return c.ScheduleNLocation(name, spec, schedule, loc, cmd), nil
 }
 
 // Schedule adds a Job to the Cron to be run on the given schedule.
@@ -171,6 +191,28 @@ func (c *Cron) ScheduleN(name, spec string, schedule Schedule, cmd Job) EntryID 
 		Spec:     spec,
 		Schedule: schedule,
 		Job:      cmd,
+	}
+
+	if !c.running {
+		c.entries = append(c.entries, entry)
+	} else {
+		c.add <- entry
+	}
+
+	return entry.ID
+}
+
+// ScheduleNLocation adds a Job to the Cron to be run on the given schedule with time location.
+func (c *Cron) ScheduleNLocation(name, spec string, schedule Schedule, loc *time.Location, cmd Job) EntryID {
+	c.nextID++
+
+	entry := &Entry{
+		ID:       c.nextID,
+		Name:     name,
+		Spec:     spec,
+		Schedule: schedule,
+		Job:      cmd,
+		Location: loc,
 	}
 
 	if !c.running {
@@ -281,6 +323,9 @@ func (c *Cron) run() {
 				now = now.In(c.location)
 				// Run every entry whose next time was less than now
 				for _, e := range c.entries {
+					if e.Location != nil {
+						now = now.In(e.Location)
+					}
 					if e.Next.After(now) || e.Next.IsZero() {
 						break
 					}
@@ -291,7 +336,10 @@ func (c *Cron) run() {
 
 			case newEntry := <-c.add:
 				timer.Stop()
-				now = c.now()
+				now := c.now()
+				if newEntry.Location != nil {
+					now = c.nowLocation(newEntry.Location)
+				}
 				newEntry.Next = newEntry.Schedule.Next(now)
 				c.entries = append(c.entries, newEntry)
 
@@ -363,4 +411,9 @@ func (c *Cron) logf(format string, args ...interface{}) {
 // now returns current time in c location
 func (c *Cron) now() time.Time {
 	return time.Now().In(c.location)
+}
+
+// nowLocation returns current time loc argument location
+func (c *Cron) nowLocation(loc *time.Location) time.Time {
+	return time.Now().In(loc)
 }
